@@ -25,7 +25,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-st.markdown(theme.CSS, unsafe_allow_html=True)
 
 
 @st.cache_data(show_spinner=False, max_entries=64)
@@ -38,6 +37,14 @@ def analyse(frame: pd.DataFrame, threshold: float):
 @st.cache_data(show_spinner=False)
 def load_synthetic(seed: int) -> pd.DataFrame:
     return simulate_metrics(seed=seed)
+
+
+def _prefers_dark() -> bool:
+    """The viewer's own setting, where the running Streamlit exposes it."""
+    try:
+        return st.context.theme.type == "dark"
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +99,9 @@ def sidebar() -> tuple[pd.DataFrame, str, float]:
     if st.session_state.get("live") and st.sidebar.button("Stop replay", width="stretch"):
         st.session_state.live = False
 
+    st.sidebar.markdown("---")
+    st.sidebar.toggle("Dark theme", key="dark")
+
     return frame, source, threshold
 
 
@@ -113,7 +123,6 @@ def summary_strip(incidents, frame) -> None:
     critical = sum(1 for i in incidents if i.severity == "Critical")
     moderate = sum(1 for i in incidents if i.severity == "Moderate")
     minor = sum(1 for i in incidents if i.severity == "Minor")
-    flagged = int(frame["flagged"].sum())
     worst = max((i.peak_sigma for i in incidents), default=0.0)
 
     cells = [
@@ -121,7 +130,7 @@ def summary_strip(incidents, frame) -> None:
         ("Critical", f"{critical}", "critical" if critical else ""),
         ("Moderate", f"{moderate}", "moderate" if moderate else ""),
         ("Minor", f"{minor}", ""),
-        ("Points flagged", f"{flagged}", ""),
+        ("Points flagged", f"{int(frame['flagged'].sum())}", ""),
         ("Worst departure", f"{worst:.1f}σ", ""),
     ]
     html = "".join(
@@ -135,14 +144,12 @@ def summary_strip(incidents, frame) -> None:
 def incident_rail(incidents) -> str:
     """Severity-ranked list. Returns the selected incident id."""
     ordered = sorted(incidents, key=lambda i: -i.peak_sigma)
-    known = {incident.id for incident in ordered}
-    if st.session_state.get("selected") not in known:
+    if st.session_state.get("selected") not in {i.id for i in ordered}:
         st.session_state.selected = ordered[0].id
 
     st.markdown('<p class="section">Incidents</p>', unsafe_allow_html=True)
     with st.container(height=560, border=False):
         for incident in ordered:
-            selected = incident.id == st.session_state.selected
             label = (
                 f"{incident.start:%H:%M}   {incident.severity:<9}"
                 f"{incident.peak_sigma:>5.1f}σ"
@@ -151,15 +158,14 @@ def incident_rail(incidents) -> str:
                 label,
                 key=f"inc_{incident.id}_{incident.severity.lower()}",
                 width="stretch",
-                type="primary" if selected else "secondary",
+                type="primary" if incident.id == st.session_state.selected else "secondary",
             ):
                 st.session_state.selected = incident.id
                 st.rerun()
     return st.session_state.selected
 
 
-def incident_detail(incident, scored) -> None:
-    tone = incident.severity.lower()
+def incident_detail(incident, scored, p) -> None:
     recurrence = (
         f" · occurrence {incident.occurrence} of this pattern"
         if incident.occurrence > 1
@@ -171,7 +177,7 @@ def incident_detail(incident, scored) -> None:
               <span class="title">{incident.headline}</span>
             </div>
             <div class="detail-meta">
-              <span class="pill {tone}">{incident.severity}</span>
+              <span class="pill {incident.severity.lower()}">{incident.severity}</span>
               &nbsp; {incident.window_label} · {incident.duration_minutes} min ·
               peak {incident.peak_sigma:.1f}σ · {incident.shape}{recurrence}
             </div>""",
@@ -194,19 +200,16 @@ def incident_detail(incident, scored) -> None:
     span = (incident.start_index - lead_in, incident.end_index - lead_in)
 
     drivers = incident.drivers[:2]
-    columns = st.columns(len(drivers))
-    for column, metric in zip(columns, drivers):
+    for column, metric in zip(st.columns(len(drivers)), drivers):
         with column:
             st.plotly_chart(
-                theme.metric_chart(view, metric, span),
+                theme.metric_chart(view, metric, p, span),
                 width="stretch",
                 key=f"detail_{incident.id}_{metric}",
             )
 
     st.plotly_chart(
-        theme.contribution_chart(incident),
-        width="stretch",
-        key=f"contrib_{incident.id}",
+        theme.contribution_chart(incident, p), width="stretch", key=f"contrib_{incident.id}"
     )
 
     others = [metric for metric in METRICS if metric not in drivers]
@@ -215,13 +218,13 @@ def incident_detail(incident, scored) -> None:
         for index, metric in enumerate(others):
             with rest[index % 2]:
                 st.plotly_chart(
-                    theme.metric_chart(view, metric, span, height=170),
+                    theme.metric_chart(view, metric, p, span, height=170),
                     width="stretch",
                     key=f"other_{incident.id}_{metric}",
                 )
 
 
-def patterns_and_export(incidents, scored, source, threshold) -> None:
+def patterns_and_export(incidents, source: str) -> None:
     left, right = st.columns([1.6, 1])
 
     with left:
@@ -241,10 +244,9 @@ def patterns_and_export(incidents, scored, source, threshold) -> None:
 
     with right:
         st.markdown('<p class="section">Export</p>', unsafe_allow_html=True)
-        table = incidents_table(incidents)
         st.download_button(
             "Incident table (CSV)",
-            data=table.to_csv(index=False).encode("utf-8"),
+            data=incidents_table(incidents).to_csv(index=False).encode("utf-8"),
             file_name="incidents.csv",
             mime="text/csv",
             width="stretch",
@@ -258,14 +260,16 @@ def patterns_and_export(incidents, scored, source, threshold) -> None:
         )
 
     with st.expander(f"All {len(incidents)} incidents as a table"):
-        st.dataframe(incidents_table(incidents), width="stretch", hide_index=True)
+        st.markdown(
+            theme.incidents_html(incidents_table(incidents)), unsafe_allow_html=True
+        )
 
 
 # ---------------------------------------------------------------------------
 # Replay
 # ---------------------------------------------------------------------------
 @st.fragment(run_every=0.4)
-def replay(raw: pd.DataFrame, threshold: float) -> None:
+def replay(raw: pd.DataFrame, threshold: float, p) -> None:
     """Re-detect on a growing window, without blocking the rest of the page.
 
     Running inside a fragment means only this block reruns on each tick, so
@@ -277,22 +281,19 @@ def replay(raw: pd.DataFrame, threshold: float) -> None:
         cursor = min(len(raw), cursor + max(4, len(raw) // 70))
         st.session_state.live_cursor = cursor
 
-    window = raw.iloc[:cursor]
-    scored, incidents = analyse(window, threshold)
+    scored, incidents = analyse(raw.iloc[:cursor], threshold)
 
-    progress = cursor / len(raw)
     st.progress(
-        progress,
+        cursor / len(raw),
         text=(
             f"Replay complete — {len(incidents)} incidents over {len(raw)} points"
             if finished
-            else f"Streaming · {cursor}/{len(raw)} points · "
-                 f"{len(incidents)} incidents so far"
+            else f"Streaming · {cursor}/{len(raw)} points · {len(incidents)} incidents so far"
         ),
     )
     summary_strip(incidents, scored)
     st.plotly_chart(
-        theme.deviation_chart(scored, threshold, incidents),
+        theme.deviation_chart(scored, threshold, incidents, p),
         width="stretch",
         key="replay_overview",
     )
@@ -301,15 +302,14 @@ def replay(raw: pd.DataFrame, threshold: float) -> None:
     for index, metric in enumerate(METRICS):
         with columns[index % 2]:
             st.plotly_chart(
-                theme.metric_chart(scored, metric, height=200),
+                theme.metric_chart(scored, metric, p, height=200),
                 width="stretch",
                 key=f"replay_{metric}",
             )
 
     if incidents:
-        latest = sorted(incidents, key=lambda i: -i.peak_sigma)[:3]
         st.markdown('<p class="section">Most severe so far</p>', unsafe_allow_html=True)
-        for incident in latest:
+        for incident in sorted(incidents, key=lambda i: -i.peak_sigma)[:3]:
             st.markdown(
                 f"`{incident.window_label}` **{incident.severity}** "
                 f"({incident.peak_sigma:.1f}σ) — {incident.headline}"
@@ -318,11 +318,17 @@ def replay(raw: pd.DataFrame, threshold: float) -> None:
 
 # ---------------------------------------------------------------------------
 def main() -> None:
+    if "dark" not in st.session_state:
+        st.session_state.dark = _prefers_dark()
+    dark = st.session_state.dark
+    p = theme.palette(dark)
+    st.markdown(theme.css(p, dark), unsafe_allow_html=True)
+
     frame, source, threshold = sidebar()
     masthead(source, frame)
 
     if st.session_state.get("live"):
-        replay(frame, threshold)
+        replay(frame, threshold, p)
         return
 
     scored, incidents = analyse(frame, threshold)
@@ -341,17 +347,16 @@ def main() -> None:
     with rail:
         selected_id = incident_rail(incidents)
     with detail:
-        selected = next(i for i in incidents if i.id == selected_id)
-        incident_detail(selected, scored)
+        incident_detail(next(i for i in incidents if i.id == selected_id), scored, p)
 
     st.markdown('<p class="section">Whole run</p>', unsafe_allow_html=True)
     st.plotly_chart(
-        theme.deviation_chart(scored, threshold, incidents, selected_id),
+        theme.deviation_chart(scored, threshold, incidents, p, selected_id),
         width="stretch",
         key="overview",
     )
 
-    patterns_and_export(incidents, scored, source, threshold)
+    patterns_and_export(incidents, source)
 
 
 if __name__ == "__main__":
