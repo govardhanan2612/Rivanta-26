@@ -133,6 +133,24 @@ def css(p: Palette, dark: bool) -> str:
   [data-testid="stProgress"] p {{ color: {p.ink_muted}; }}
   [data-baseweb="slider"] div[role="slider"] ~ div {{ color: {p.ink_secondary}; }}
 
+  /* Ordinary buttons. Streamlit paints these from the theme it resolved at
+     startup, so without this they stay light behind a runtime switch. The
+     incident rail overrides these below on higher specificity. */
+  .stButton button, .stDownloadButton button, [data-testid="stBaseButton-secondary"],
+  [data-testid="stFileUploaderDropzone"] button {{
+    background: {p.surface} !important; color: {p.ink_secondary} !important;
+    border: 1px solid {p.hairline} !important; border-radius: 6px;
+    font-weight: 500;
+  }}
+  .stButton button:hover, .stDownloadButton button:hover,
+  [data-testid="stFileUploaderDropzone"] button:hover {{
+    background: {p.hover} !important; color: {p.ink} !important;
+    border-color: {p.series} !important;
+  }}
+  .stButton button p, .stDownloadButton button p,
+  .stButton button div, .stDownloadButton button div {{ color: inherit !important; }}
+  .stButton button:focus, .stDownloadButton button:focus {{ box-shadow: none !important; }}
+
   /* Masthead */
   .masthead {{ margin-bottom: 1.4rem; }}
   .masthead h1 {{
@@ -162,24 +180,28 @@ def css(p: Palette, dark: bool) -> str:
 
   /* Incident rail rows, styled through the stable st-key- class */
   div[class*="st-key-inc_"] button {{
-    width: 100%; justify-content: flex-start; text-align: left;
-    background: {p.surface}; color: {p.ink_secondary};
-    border: 1px solid {p.hairline}; border-left-width: 3px; border-radius: 6px;
+    width: 100%; justify-content: flex-start !important; text-align: left;
+    background: {p.surface} !important; color: {p.ink_secondary} !important;
+    border: 1px solid {p.hairline} !important; border-left-width: 3px !important;
+    border-radius: 6px;
     padding: 0.5rem 0.7rem; margin-bottom: 0.3rem; font-family: {MONO};
     font-size: 0.78rem; font-variant-numeric: tabular-nums; transition: none;
   }}
   div[class*="st-key-inc_"] button p {{
-    text-align: left; width: 100%; font-size: 0.78rem; margin: 0; color: inherit;
+    text-align: left; width: 100%; font-size: 0.78rem; margin: 0;
+    color: inherit !important; font-family: {MONO};
   }}
-  div[class*="st-key-inc_"] button:hover {{ background: {p.hover}; color: {p.ink}; }}
-  div[class*="st-key-inc_"][class*="_critical"] button {{ border-left-color: {CRITICAL}; }}
-  div[class*="st-key-inc_"][class*="_moderate"] button {{ border-left-color: {SERIOUS}; }}
-  div[class*="st-key-inc_"][class*="_minor"] button {{ border-left-color: {WARNING}; }}
+  div[class*="st-key-inc_"] button:hover {{
+    background: {p.hover} !important; color: {p.ink} !important;
+  }}
+  div[class*="st-key-inc_"][class*="_critical"] button {{ border-left-color: {CRITICAL} !important; }}
+  div[class*="st-key-inc_"][class*="_moderate"] button {{ border-left-color: {SERIOUS} !important; }}
+  div[class*="st-key-inc_"][class*="_minor"] button {{ border-left-color: {WARNING} !important; }}
   div[class*="st-key-inc_"] button[kind="primary"] {{
-    background: {p.selected}; color: {p.ink}; border-color: {p.series};
-    border-left-width: 3px;
+    background: {p.selected} !important; color: {p.ink} !important;
+    border-color: {p.series} !important; border-left-width: 3px !important;
   }}
-  div[class*="st-key-inc_"] button[kind="primary"] p {{ color: {p.ink}; }}
+  div[class*="st-key-inc_"] button[kind="primary"] p {{ color: {p.ink} !important; }}
 
   /* Incident detail */
   .detail-head {{ display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 0.2rem; }}
