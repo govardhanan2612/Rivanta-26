@@ -94,7 +94,30 @@ def css(p: Palette, dark: bool) -> str:
     minor_ink = p.ink if dark else "#0b0b0b"
     return f"""
 <style>
-  [data-testid="stToolbar"], #MainMenu, footer {{ visibility: hidden; height: 0; }}
+  /* Hide the app menu and deploy button only. The toolbar itself must stay:
+     it holds the control that reopens a collapsed sidebar, and hiding it
+     wholesale leaves no way back once the sidebar is closed. */
+  [data-testid="stMainMenu"], [data-testid="stAppDeployButton"],
+  #MainMenu, footer {{ display: none !important; }}
+  /* The sidebar open/close controls. Streamlit inks their icons from the
+     theme it resolved at startup, so in dark mode the open control was a
+     near-black arrow on a near-black page - present, clickable, invisible.
+     The testid sits on the button itself, not on a wrapper around it. */
+  [data-testid="stSidebarCollapsedControl"] {{
+    visibility: visible !important; opacity: 1 !important;
+  }}
+  [data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapseButton"] button {{
+    background: {p.surface} !important; border: 1px solid {p.hairline} !important;
+    border-radius: 6px !important; visibility: visible !important; opacity: 1 !important;
+  }}
+  [data-testid="stExpandSidebarButton"]:hover,
+  [data-testid="stSidebarCollapseButton"] button:hover {{
+    background: {p.hover} !important; border-color: {p.series} !important;
+  }}
+  [data-testid="stExpandSidebarButton"] span,
+  [data-testid="stSidebarCollapseButton"] span {{
+    color: {p.ink} !important;
+  }}
   [data-testid="stAppViewContainer"], [data-testid="stMain"],
   section[data-testid="stMain"] > div {{ background: {p.plane}; }}
   [data-testid="stHeader"] {{ background: transparent; }}
@@ -187,9 +210,12 @@ def css(p: Palette, dark: bool) -> str:
     padding: 0.5rem 0.7rem; margin-bottom: 0.3rem; font-family: {MONO};
     font-size: 0.78rem; font-variant-numeric: tabular-nums; transition: none;
   }}
+  div[class*="st-key-inc_"] button > div {{
+    justify-content: flex-start !important; width: 100%;
+  }}
   div[class*="st-key-inc_"] button p {{
     text-align: left; width: 100%; font-size: 0.78rem; margin: 0;
-    color: inherit !important; font-family: {MONO};
+    color: inherit !important; font-family: {MONO}; white-space: pre;
   }}
   div[class*="st-key-inc_"] button:hover {{
     background: {p.hover} !important; color: {p.ink} !important;
